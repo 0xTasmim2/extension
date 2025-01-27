@@ -15,7 +15,6 @@ import {
 import {
   isEIP1559TransactionRequest,
   isKnownTxType,
-  sameNetwork,
   SignedTransaction,
   TransactionRequestWithNonce,
 } from "../../networks"
@@ -25,7 +24,7 @@ import { ServiceCreatorFunction, ServiceLifecycleEvents } from "../types"
 import logger from "../../lib/logger"
 import { getOrCreateDB, LedgerAccount, LedgerDatabase } from "./db"
 import { ethersTransactionFromTransactionRequest } from "../chain/utils"
-import { NETWORK_FOR_LEDGER_SIGNING } from "../../constants"
+import { ETHEREUM } from "../../constants"
 import { normalizeEVMAddress } from "../../lib/utils"
 import { AddressOnNetwork } from "../../accounts"
 
@@ -33,6 +32,7 @@ enum LedgerType {
   UNKNOWN,
   LEDGER_NANO_S,
   LEDGER_NANO_X,
+  LEDGER_NANO_X_1,
   LEDGER_NANO_S_PLUS,
 }
 
@@ -47,6 +47,7 @@ export type LedgerAccountSigner = {
 export const LedgerProductDatabase = {
   LEDGER_NANO_S: { productId: 0x1015 },
   LEDGER_NANO_X: { productId: 0x4015 },
+  LEDGER_NANO_X_1: { productId: 0x4000 },
   LEDGER_NANO_S_PLUS: { productId: 0x5015 },
 }
 
@@ -72,6 +73,7 @@ const DisplayDetailsByLedgerType: {
   [LedgerType.UNKNOWN]: { messageSigningDisplayLength: 0 },
   [LedgerType.LEDGER_NANO_S]: { messageSigningDisplayLength: 99 },
   [LedgerType.LEDGER_NANO_X]: { messageSigningDisplayLength: 255 },
+  [LedgerType.LEDGER_NANO_X_1]: { messageSigningDisplayLength: 255 },
   [LedgerType.LEDGER_NANO_S_PLUS]: { messageSigningDisplayLength: 255 },
 }
 
@@ -178,6 +180,13 @@ export default class LedgerService extends BaseService<Events> {
 
   private constructor(private db: LedgerDatabase) {
     super()
+
+    navigator.usb.addEventListener("connect", this.#handleUSBConnect)
+    navigator.usb.addEventListener("disconnect", this.#handleUSBDisconnect)
+
+    // Block serial oprations until the service is started, in case a
+    // connection or disconnection event occurs to soon.
+    this.#lastOperationPromise = this.started().then(() => {})
   }
 
   private runSerialized<T>(operation: () => Promise<T>) {
@@ -287,9 +296,6 @@ export default class LedgerService extends BaseService<Events> {
     await super.internalStartService() // Not needed, but better to stick to the patterns
 
     this.refreshConnectedLedger()
-
-    navigator.usb.addEventListener("connect", this.#handleUSBConnect)
-    navigator.usb.addEventListener("disconnect", this.#handleUSBDisconnect)
   }
 
   protected override async internalStopService(): Promise<void> {
@@ -542,10 +548,14 @@ export default class LedgerService extends BaseService<Events> {
     { address, network }: AddressOnNetwork,
     hexDataToSign: HexString,
   ): Promise<string> {
+    // Currently the service assumes the Eth app, which requires a network that
+    // uses the same derivation path as Ethereum, or one that starts with the
+    // same components.
+    // FIXME This should take a `LedgerAccountSigner` and use `checkCanSign`
+    // FIXME like other signing methods.
     if (
-      !NETWORK_FOR_LEDGER_SIGNING.find((supportedNetwork) =>
-        sameNetwork(network, supportedNetwork),
-      )
+      network.derivationPath !== ETHEREUM.derivationPath &&
+      !network.derivationPath?.startsWith(ETHEREUM.derivationPath ?? "")
     ) {
       throw new Error("Unsupported network for Ledger signing")
     }

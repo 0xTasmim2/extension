@@ -5,7 +5,7 @@ import {
   createSpamReport,
   DaylightAbility,
   DaylightAbilityRequirement,
-  getDaylightAbilities,
+  // getDaylightAbilities,
 } from "../../lib/daylight"
 import { AbilitiesDatabase, getOrCreateDB } from "./db"
 import ChainService from "../chain"
@@ -149,7 +149,15 @@ export default class AbilitiesService extends BaseService<Events> {
     return this.db.getSortedAbilities()
   }
 
+  // Re-enable once polling is re-enabled.
+  // eslint-disable-next-line class-methods-use-this, @typescript-eslint/no-unused-vars
   async pollForAbilities(address: NormalizedEVMAddress): Promise<void> {
+    // FIXME Disabled due to high usage on the Daylight side. UI should also be
+    // FIXME disconnected. Re-enabling should involve reconsidering our
+    // FIXME fetch/sync strategy to be based on user access/usage or other
+    // FIXME triggers, or be aggressively throttled when there is no direct
+    // FIXME user interaction.
+    /*
     const latestDaylightAbilities = await getDaylightAbilities(address)
     const latestAbilities = normalizeDaylightAbilities(
       latestDaylightAbilities,
@@ -162,6 +170,7 @@ export default class AbilitiesService extends BaseService<Events> {
       address,
       abilities: updatedAbilities,
     })
+    */
   }
 
   async markAbilityAsCompleted(
@@ -187,7 +196,7 @@ export default class AbilitiesService extends BaseService<Events> {
   }
 
   async fetchAbilities(): Promise<void> {
-    localStorage.setItem(this.ABILITY_TIME_KEY, Date.now().toString())
+    // localStorage.setItem(this.ABILITY_TIME_KEY, Date.now().toString())
     const accountsToTrack = await this.chainService.getAccountsToTrack()
     const addresses = new Set(
       accountsToTrack.map((account) => normalizeEVMAddress(account.address)),
@@ -201,7 +210,7 @@ export default class AbilitiesService extends BaseService<Events> {
   }
 
   async refreshAbilities(): Promise<void> {
-    const lastFetchTime = localStorage.getItem(this.ABILITY_TIME_KEY)
+    const lastFetchTime = Date.now() // localStorage.getItem(this.ABILITY_TIME_KEY)
 
     if (lastFetchTime && Number(lastFetchTime) + HOUR > Date.now()) {
       return

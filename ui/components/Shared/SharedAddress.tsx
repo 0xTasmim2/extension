@@ -5,13 +5,22 @@ import classNames from "classnames"
 import React, { ReactElement, useCallback } from "react"
 import { useBackgroundDispatch } from "../../hooks"
 import SharedTooltip from "./SharedTooltip"
+import { trimWithEllipsis } from "../../utils/textUtils"
 
 type SharedAddressProps = {
+  id?: string
   address: string
   name?: string | undefined
   elide: boolean
   nameResolverSystem?: NameResolverSystem
+  /**
+   * Always show the address, even if `name` is passed.
+   */
   alwaysShowAddress: boolean
+  /**
+   * Show a copy icon after the content text.
+   */
+  showCopyIcon?: boolean
 }
 
 /**
@@ -30,11 +39,13 @@ type SharedAddressProps = {
  * `nameResolverSystem` prop is ignored.
  */
 export default function SharedAddress({
+  id,
   name,
   address,
   elide,
   nameResolverSystem,
   alwaysShowAddress,
+  showCopyIcon,
 }: SharedAddressProps): ReactElement {
   const dispatch = useBackgroundDispatch()
 
@@ -47,13 +58,14 @@ export default function SharedAddress({
 
   return (
     <button
+      id={id}
       type="button"
       onClick={copyAddress}
       title={`Copy to clipboard:\n${address}`}
       className={classNames({ ellipsis: elide })}
     >
       <p className={classNames({ ellipsis: elide })}>
-        {primaryText}
+        {trimWithEllipsis(primaryText, 15)}
         {name !== undefined && nameResolverSystem !== undefined && (
           <>
             <SharedTooltip width={130}>
@@ -67,8 +79,11 @@ export default function SharedAddress({
       {alwaysShowAddress && name !== undefined && (
         <p className="detail">{truncateAddress(address)}</p>
       )}
+      {showCopyIcon === true && <span className="copy_icon" />}
       <style jsx>{`
         button {
+          display: flex;
+          white-space: nowrap;
           transition: 300ms color;
           max-width: 100%;
         }
@@ -77,6 +92,18 @@ export default function SharedAddress({
         }
         button:hover {
           color: var(--gold-80);
+        }
+        .copy_icon {
+          mask-image: url("./images/copy@2x.png");
+          mask-size: cover;
+          width: 24px;
+          height: 24px;
+          margin-left: 10px;
+          display: inline-block;
+          background-color: var(--green-5);
+        }
+        button:hover .copy_icon {
+          background-color: var(--trophy-gold);
         }
         .name_source_tooltip {
           margin: 0;

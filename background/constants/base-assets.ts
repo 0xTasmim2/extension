@@ -38,9 +38,18 @@ const OPTIMISTIC_ETH: NetworkBaseAsset = {
   },
 }
 
-const GOERLI_ETH: NetworkBaseAsset = {
+const SEPOLIA_ETH: NetworkBaseAsset = {
   ...ETH,
-  chainID: "5",
+  chainID: "11155111",
+  metadata: {
+    coinGeckoID: "ethereum",
+    tokenLists: [],
+  },
+}
+
+const ARBITRUM_SEPOLIA_ETH: NetworkBaseAsset = {
+  ...ETH,
+  chainID: "421614",
   metadata: {
     coinGeckoID: "ethereum",
     tokenLists: [],
@@ -108,7 +117,8 @@ export const BASE_ASSETS_BY_CUSTOM_NAME = {
   ARBITRUM_ONE_ETH,
   ARBITRUM_NOVA_ETH,
   OPTIMISTIC_ETH,
-  GOERLI_ETH,
+  SEPOLIA_ETH,
+  ARBITRUM_SEPOLIA_ETH,
   ZK_SYNC_ETH,
 }
 

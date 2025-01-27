@@ -109,6 +109,7 @@ type Events = ServiceLifecycleEvents & {
     Partial<EnrichedEVMTransactionRequest> & {
       from: string
       network: EVMNetwork
+      broadcastOnSign: boolean
     },
     SignedTransaction
   >
@@ -245,6 +246,7 @@ export default class InternalEthereumProviderService extends BaseService<Events>
             ...(params[0] as JsonRpcTransactionRequest),
           },
           origin,
+          true,
         ).then(async (signed) => {
           await this.chainService.broadcastSignedTransaction(signed)
           return signed.hash
@@ -253,6 +255,7 @@ export default class InternalEthereumProviderService extends BaseService<Events>
         return this.signTransaction(
           params[0] as JsonRpcTransactionRequest,
           origin,
+          false,
         ).then((signedTransaction) =>
           serializeEthersTransaction(
             ethersTransactionFromSignedTransaction(signedTransaction),
@@ -387,13 +390,14 @@ export default class InternalEthereumProviderService extends BaseService<Events>
     return currentNetwork
   }
 
-  async removePrefererencesForChain(chainId: string): Promise<void> {
+  async removePreferencesForChain(chainId: string): Promise<void> {
     await this.db.removeStoredPreferencesForChain(chainId)
   }
 
   private async signTransaction(
     transactionRequest: JsonRpcTransactionRequest,
     origin: string,
+    broadcastOnSign: boolean,
   ): Promise<SignedTransaction> {
     const annotation =
       origin === TAHO_INTERNAL_ORIGIN &&
@@ -457,6 +461,7 @@ export default class InternalEthereumProviderService extends BaseService<Events>
           from,
           network: currentNetwork,
           annotation,
+          broadcastOnSign,
         },
         resolver: resolve,
         rejecter: reject,
@@ -537,6 +542,20 @@ export default class InternalEthereumProviderService extends BaseService<Events>
       network: supportedNetwork,
     })
     await this.db.setCurrentChainIdForOrigin(origin, supportedNetwork)
+  }
+
+  /**
+   * Clears the current network for the given origin if and only if it matches
+   * the passed chain id.
+   *
+   * If the origin has a different chain id set as the current network, the
+   * current network will be left in place.
+   */
+  async unsetCurrentNetworkForOrigin(
+    origin: string,
+    chainId: string,
+  ): Promise<void> {
+    await this.db.unsetCurrentNetworkForOrigin(origin, chainId)
   }
 
   private async signData(

@@ -26,6 +26,8 @@ import NFTListCurrentWallet from "../components/NFTs/NFTListCurrentWallet"
 import WalletHiddenAssets from "../components/Wallet/WalletHiddenAssets"
 import SharedButton from "../components/Shared/SharedButton"
 import SharedIcon from "../components/Shared/SharedIcon"
+import PortalBanner from "../components/Wallet/Banner/PortalBanner"
+import WalletSubspaceLink from "../components/Wallet/WalletSubscapeLink"
 
 export default function Wallet(): ReactElement {
   const { t } = useTranslation()
@@ -100,6 +102,7 @@ export default function Wallet(): ReactElement {
   return (
     <>
       <div className="page_content">
+        {isEnabled(FeatureFlags.SHOW_ISLAND_UI) && <WalletSubspaceLink />}
         <WalletAnalyticsNotificationBanner />
         <div className="section">
           <WalletAccountBalanceControl
@@ -110,9 +113,10 @@ export default function Wallet(): ReactElement {
         {isEnabled(FeatureFlags.SUPPORT_ACHIEVEMENTS_BANNER) && (
           <WalletBanner />
         )}
-        {!isEnabled(FeatureFlags.HIDE_TOKEN_FEATURES) && (
+        {isEnabled(FeatureFlags.SHOW_TOKEN_FEATURES) && (
           <OnboardingOpenClaimFlowBanner />
         )}
+        {isEnabled(FeatureFlags.SHOW_ISLAND_UI) && <PortalBanner />}
         <div className="section">
           <SharedPanelSwitcher
             setPanelNumber={setPanelNumber}
@@ -151,7 +155,7 @@ export default function Wallet(): ReactElement {
                     <SharedIcon
                       width={16}
                       height={16}
-                      customStyles="margin-right: 4px"
+                      style={{ marginRight: 4 }}
                       icon="icons/s/add.svg"
                       color="currentColor"
                     />
@@ -186,10 +190,12 @@ export default function Wallet(): ReactElement {
           .page_content {
             width: 100%;
             height: inherit;
+            position: relative;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: space-between;
+            overflow-x: hidden;
           }
           .section {
             display: flex;

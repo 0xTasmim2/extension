@@ -1,9 +1,10 @@
-import { browser, startMain } from "@tallyho/tally-background"
+import { browser, startRedux } from "@tallyho/tally-background"
 import {
   FeatureFlags,
   isEnabled,
   RuntimeFlag,
 } from "@tallyho/tally-background/features"
+import ReduxService from "@tallyho/tally-background/services/redux"
 import { ONBOARDING_ROOT } from "@tallyho/tally-ui/pages/Onboarding/Tabbed/Routes"
 
 browser.runtime.onInstalled.addListener((obj) => {
@@ -19,10 +20,18 @@ browser.runtime.onInstalled.addListener((obj) => {
     obj.reason === "update" &&
     !isEnabled(FeatureFlags.SWITCH_RUNTIME_FLAGS)
   ) {
-    Object.keys(RuntimeFlag).forEach((flagName) =>
-      localStorage.removeItem(flagName),
+    Object.keys(RuntimeFlag).forEach(
+      // Holding until the approach can be reworked around browser.storage.local.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      (flagName) => "", // localStorage.removeItem(flagName),
     )
   }
 })
 
-startMain()
+let redux: Promise<ReduxService>
+
+browser.runtime.onConnect.addListener(async (port) => {
+  ;(await redux).connectPort(port)
+})
+
+redux ??= startRedux()

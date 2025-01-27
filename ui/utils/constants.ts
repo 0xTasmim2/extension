@@ -4,7 +4,8 @@ import {
   AVALANCHE,
   BINANCE_SMART_CHAIN,
   ETHEREUM,
-  GOERLI,
+  SEPOLIA,
+  ARBITRUM_SEPOLIA,
   OPTIMISM,
   POLYGON,
   ROOTSTOCK,
@@ -22,7 +23,14 @@ export const blockExplorer = {
     url: "https://optimistic.etherscan.io",
   },
   [POLYGON.chainID]: { title: "Polygonscan", url: "https://polygonscan.com" },
-  [GOERLI.chainID]: { title: "Etherscan", url: "https://goerli.etherscan.io/" },
+  [SEPOLIA.chainID]: {
+    title: "Etherscan",
+    url: "https://sepolia.etherscan.io/",
+  },
+  [ARBITRUM_SEPOLIA.chainID]: {
+    title: "Arbiscan",
+    url: "https://sepolia.arbiscan.io/",
+  },
   [ARBITRUM_ONE.chainID]: { title: "Arbiscan", url: "https://arbiscan.io/" },
   [AVALANCHE.chainID]: { title: "Snowtrace", url: "https://snowtrace.io/" },
   [BINANCE_SMART_CHAIN.chainID]: {

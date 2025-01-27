@@ -20,6 +20,7 @@ import {
   toHexChainID,
   NetworkBaseAsset,
   sameChainID,
+  sameNetwork,
 } from "../../networks"
 import {
   AnyAssetAmount,
@@ -50,7 +51,11 @@ import {
   ethersTransactionFromTransactionRequest,
   unsignedTransactionFromEVMTransaction,
 } from "./utils"
-import { normalizeEVMAddress, sameEVMAddress } from "../../lib/utils"
+import {
+  isProbablyEVMAddress,
+  normalizeEVMAddress,
+  sameEVMAddress,
+} from "../../lib/utils"
 import type {
   EnrichedEIP1559TransactionRequest,
   EnrichedEIP1559TransactionSignatureRequest,
@@ -70,6 +75,7 @@ import {
 } from "./utils/optimismGasPriceOracle"
 import InternalSignerService, { SignerImportSource } from "../internal-signer"
 import type { ValidatedAddEthereumChainParameter } from "../provider-bridge/utils"
+import { ISLAND_NETWORK } from "../island/contracts"
 
 // The number of blocks to query at a time for historic asset transfers.
 // Unfortunately there's no "right" answer here that works well across different
@@ -311,7 +317,17 @@ export default class ChainService extends BaseService<Events> {
 
     await this.db.initialize()
     await this.initializeNetworks()
-    const accounts = await this.getAccountsToTrack()
+    const allAccounts = await this.getAccountsToTrack()
+    const accounts = allAccounts.filter(({ address }) =>
+      isProbablyEVMAddress(address),
+    )
+    const invalidAddresses = accounts.filter(
+      ({ address }) => !isProbablyEVMAddress(address),
+    )
+    logger.warn("Cleaning up invalid tracked addresses", invalidAddresses)
+    invalidAddresses.forEach(({ address }) =>
+      this.removeAccountToTrack(address),
+    )
     const trackedNetworks = await this.getTrackedNetworks()
 
     const transactions = await this.db.getAllTransactions()
@@ -325,10 +341,6 @@ export default class ChainService extends BaseService<Events> {
         .flatMap((an) => [
           // subscribe to all account transactions
           this.subscribeToAccountTransactions(an).catch((e) => {
-            logger.error(e)
-          }),
-          // do a base-asset balance check for every account
-          this.getLatestBaseAccountBalance(an).catch((e) => {
             logger.error(e)
           }),
         ])
@@ -529,8 +541,17 @@ export default class ChainService extends BaseService<Events> {
     transactionRequest: EnrichedLegacyTransactionRequest
     gasEstimationError: string | undefined
   }> {
-    const { from, to, value, gasLimit, input, gasPrice, nonce, annotation } =
-      partialRequest
+    const {
+      from,
+      to,
+      value,
+      gasLimit,
+      input,
+      gasPrice,
+      nonce,
+      annotation,
+      broadcastOnSign,
+    } = partialRequest
     // Basic transaction construction based on the provided options, with extra data from the chain service
     const transactionRequest: EnrichedLegacyTransactionRequest = {
       from,
@@ -552,6 +573,7 @@ export default class ChainService extends BaseService<Events> {
           ? await this.estimateL1RollupGasPrice(network)
           : 0n,
       estimatedRollupFee: 0n,
+      broadcastOnSign,
     }
 
     if (network.chainID === OPTIMISM.chainID) {
@@ -627,6 +649,7 @@ export default class ChainService extends BaseService<Events> {
       maxPriorityFeePerGas,
       nonce,
       annotation,
+      broadcastOnSign,
     } = partialRequest
 
     // Basic transaction construction based on the provided options, with extra data from the chain service
@@ -643,6 +666,7 @@ export default class ChainService extends BaseService<Events> {
       chainID: network.chainID,
       nonce,
       annotation,
+      broadcastOnSign,
     }
 
     // Always estimate gas to decide whether the transaction will likely fail.
@@ -875,8 +899,17 @@ export default class ChainService extends BaseService<Events> {
   async getNetworksToTrack(): Promise<EVMNetwork[]> {
     const chainIDs = await this.db.getChainIDsToTrack()
     if (chainIDs.size === 0) {
-      // Default to tracking Ethereum so ENS resolution works during onboarding
+      // Ethereum - default to tracking Ethereum so ENS resolution works during onboarding
+      // Arbitrum Sepolia - default to tracking so we can support Island Dapp
+      if (isEnabled(FeatureFlags.SUPPORT_THE_ISLAND)) {
+        return [ETHEREUM, ISLAND_NETWORK]
+      }
+
       return [ETHEREUM]
+    }
+
+    if (isEnabled(FeatureFlags.SUPPORT_THE_ISLAND)) {
+      chainIDs.add(ISLAND_NETWORK.chainID)
     }
 
     const networks = await Promise.all(
@@ -888,6 +921,7 @@ export default class ChainService extends BaseService<Events> {
         return network
       }),
     )
+
     return networks.filter((network): network is EVMNetwork => !!network)
   }
 
@@ -940,6 +974,11 @@ export default class ChainService extends BaseService<Events> {
   }
 
   async addAccountToTrack(addressNetwork: AddressOnNetwork): Promise<void> {
+    if (!isProbablyEVMAddress(addressNetwork.address)) {
+      logger.warn("Refusing to track invalid address", addressNetwork)
+      return
+    }
+
     const source = this.internalSignerService.getSignerSourceForAddress(
       addressNetwork.address,
     )
@@ -953,20 +992,22 @@ export default class ChainService extends BaseService<Events> {
     this.emitSavedTransactions(addressNetwork)
     this.subscribeToAccountTransactions(addressNetwork).catch((e) => {
       logger.error(
-        "chainService/addAccountToTrack: Error subscribing to account transactions",
-        e,
-      )
-    })
-    this.getLatestBaseAccountBalance(addressNetwork).catch((e) => {
-      logger.error(
-        "chainService/addAccountToTrack: Error getting latestBaseAccountBalance",
+        "chainService/addAccountToTrack: Error subscribing to account transactions for",
+        {
+          address: addressNetwork.address,
+          chainID: addressNetwork.network.chainID,
+        },
         e,
       )
     })
     if (source !== SignerImportSource.internal) {
       this.loadHistoricAssetTransfers(addressNetwork).catch((e) => {
         logger.error(
-          "chainService/addAccountToTrack: Error loading historic asset transfers",
+          "chainService/addAccountToTrack: Error loading historic asset transfers for",
+          {
+            address: addressNetwork.address,
+            chainID: addressNetwork.network.chainID,
+          },
           e,
         )
       })
@@ -1239,6 +1280,18 @@ export default class ChainService extends BaseService<Events> {
     address,
     network,
   }: AddressOnNetwork): Promise<void> {
+    // If we find ourselves having untracked this account for some reason and
+    // there's activity on it, track it.
+    if (
+      !(await this.getAccountsToTrack()).some(
+        (account) =>
+          sameEVMAddress(account.address, address) &&
+          sameNetwork(account.network, network),
+      )
+    ) {
+      await this.addAccountToTrack({ address, network })
+    }
+
     const addressWasInactive = this.addressIsInactive(address)
     const networkWasInactive = this.networkIsInactive(network.chainID)
     this.markNetworkActivity(network.chainID)

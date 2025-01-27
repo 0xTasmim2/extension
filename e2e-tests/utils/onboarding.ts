@@ -32,7 +32,7 @@ export interface Account {
 // The account1 is a 3rd address associated with the testertesting.eth account.
 // It owns some NFTs/badges.
 export const account1: Account = {
-  address: "0x6f1b1f1feb01235e15a7962f16c389c7f8218ed6",
+  address: "0x9d373acbe8540895fa1752ab463ab31bbab2b38f",
   name: /^e2e\.testertesting\.eth$/,
   jsonBody: process.env.E2E_TEST_ONLY_WALLET_JSON_BODY,
   jsonPassword: process.env.E2E_TEST_ONLY_WALLET_JSON_PASSWORD,
@@ -41,7 +41,7 @@ export const account1: Account = {
 // testing, so it's balance may fluctuate. It can be used to test features that
 // don't depend on the constant balance or state of the assets.
 export const account2 = {
-  address: "0x0581470a8b62bd35dbf121a6329d43e7edd20fc7",
+  address: "0x6e80164ea60673d64d5d6228beb684a1274bb017",
   name: /^testertesting\.eth$/,
   jsonBody: process.env.TEST_WALLET_JSON_BODY,
   jsonPassword: process.env.TEST_WALLET_JSON_PASSWORD,
@@ -183,10 +183,14 @@ export default class OnboardingHelper {
     await page.getByRole("button", { name: "Begin the hunt" }).click()
     await page.getByRole("button", { name: "Create recovery phrase" }).click()
 
-    // Verify seed
-    const seedWords = (
-      await page.locator(".seed_phrase .word").allTextContents()
-    ).map((word) => word.replace(/-|\s/, ""))
+    // Wait for the seed phrase to load.
+    const seedPhraseWord = await page.locator(".seed_phrase .word")
+    await expect(seedPhraseWord).toHaveCount(24)
+
+    // Extract seed into an array of words with no spaces or dashes.
+    const seedWords = (await seedPhraseWord.allTextContents()).map((word) =>
+      word.replace(/-|\s/, ""),
+    )
 
     await page.getByRole("button", { name: "I wrote it down" }).click()
 
@@ -194,6 +198,8 @@ export default class OnboardingHelper {
       "verify_seed_word_placeholder",
     )
 
+    // Extract the ids of the seed phrase words that need to be verified and
+    // store them as an array of numbers.
     const wordsToVerify = (await seedWordPlaceholders.allTextContents()).map(
       (word) => Number((word.match(/\d+/) ?? ["0"])[0]),
     )

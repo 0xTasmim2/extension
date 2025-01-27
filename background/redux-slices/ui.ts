@@ -4,8 +4,7 @@ import { AddressOnNetwork } from "../accounts"
 import { ETHEREUM } from "../constants"
 import { AnalyticsEvent, OneTimeAnalyticsEvent } from "../lib/posthog"
 import { EVMNetwork } from "../networks"
-import { DismissableItem } from "../services/preferences"
-import { AnalyticsPreferences } from "../services/preferences/types"
+import { AnalyticsPreferences, DismissableItem } from "../services/preferences"
 import { AccountSignerWithId } from "../signing"
 import { AccountSignerSettings } from "../ui"
 import { AccountState, addAddressNetwork } from "./accounts"
@@ -17,6 +16,7 @@ export const defaultSettings = {
   hideDust: false,
   defaultWallet: false,
   showTestNetworks: false,
+  showNotifications: undefined,
   collectAnalytics: false,
   showAnalyticsNotification: false,
   showUnverifiedAssets: false,
@@ -35,6 +35,7 @@ export type UIState = {
     hideDust: boolean
     defaultWallet: boolean
     showTestNetworks: boolean
+    showNotifications?: boolean
     collectAnalytics: boolean
     showAnalyticsNotification: boolean
     showUnverifiedAssets: boolean
@@ -58,6 +59,7 @@ export type Events = {
   newSelectedAccountSwitched: AddressOnNetwork
   userActivityEncountered: AddressOnNetwork
   newSelectedNetwork: EVMNetwork
+  shouldShowNotifications: boolean
   updateAnalyticsPreferences: Partial<AnalyticsPreferences>
   addCustomNetworkResponse: [string, boolean]
   updateAutoLockInterval: number
@@ -117,6 +119,12 @@ const uiSlice = createSlice({
         showAnalyticsNotification: false,
       },
     }),
+    toggleNotifications: (
+      immerState,
+      { payload: showNotifications }: { payload: boolean },
+    ) => {
+      immerState.settings.showNotifications = showNotifications
+    },
     setShowAnalyticsNotification: (
       state,
       { payload: showAnalyticsNotification }: { payload: boolean },
@@ -227,6 +235,7 @@ export const {
   toggleUseFlashbots,
   setShowAnalyticsNotification,
   toggleHideBanners,
+  toggleNotifications,
   setSelectedAccount,
   setSnackbarMessage,
   setDefaultWallet,
@@ -247,6 +256,13 @@ export const updateAnalyticsPreferences = createBackgroundAsyncThunk(
     await emitter.emit("updateAnalyticsPreferences", {
       isEnabled: collectAnalytics,
     })
+  },
+)
+
+export const setShouldShowNotifications = createBackgroundAsyncThunk(
+  "ui/showNotifications",
+  async (shouldShowNotifications: boolean) => {
+    await emitter.emit("shouldShowNotifications", shouldShowNotifications)
   },
 )
 
@@ -428,6 +444,11 @@ export const selectShowUnverifiedAssets = createSelector(
 export const selectCollectAnalytics = createSelector(
   selectSettings,
   (settings) => settings?.collectAnalytics,
+)
+
+export const selectShowNotifications = createSelector(
+  selectSettings,
+  (settings) => settings?.showNotifications,
 )
 
 export const selectHideBanners = createSelector(

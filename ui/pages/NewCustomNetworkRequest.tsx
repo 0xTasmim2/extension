@@ -106,7 +106,7 @@ export default function NewCustomNetworkRequest(): JSX.Element | null {
                 width={14}
                 height={14}
                 color="var(--trophy-gold)"
-                customStyles="margin: 2px;"
+                style={{ margin: 2 }}
                 icon="plus@2x.png"
               />
             </div>
@@ -156,7 +156,12 @@ export default function NewCustomNetworkRequest(): JSX.Element | null {
               >
                 {t("addNewChain.cancel")}
               </SharedButton>
-              <SharedButton size="large" type="primary" isFormSubmit>
+              <SharedButton
+                id="addNewChain"
+                size="large"
+                type="primary"
+                isFormSubmit
+              >
                 {t("addNewChain.submit")}
               </SharedButton>
             </>

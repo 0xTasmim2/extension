@@ -4,6 +4,8 @@ import { Trans, useTranslation } from "react-i18next"
 import {
   selectHideDust,
   toggleHideDust,
+  selectShowNotifications,
+  setShouldShowNotifications,
   selectShowTestNetworks,
   toggleTestNetworks,
   toggleHideBanners,
@@ -165,11 +167,16 @@ export default function Settings(): ReactElement {
   const hideBanners = useSelector(selectHideBanners)
   const showTestNetworks = useSelector(selectShowTestNetworks)
   const showUnverifiedAssets = useSelector(selectShowUnverifiedAssets)
+  const shouldShowNotifications = useSelector(selectShowNotifications)
   const useFlashbots = useSelector(selectUseFlashbots)
   const mainCurrencySign = useBackgroundSelector(selectMainCurrencySign)
 
   const toggleHideDustAssets = (toggleValue: boolean) => {
     dispatch(toggleHideDust(toggleValue))
+  }
+
+  const toggleNotifications = (toggleValue: boolean) => {
+    dispatch(setShouldShowNotifications(toggleValue))
   }
 
   const toggleShowTestNetworks = (defaultWalletValue: boolean) => {
@@ -203,7 +210,7 @@ export default function Settings(): ReactElement {
   const unverifiedAssets = {
     title: t("settings.showUnverifiedAssets"),
     tooltip: () => (
-      <SharedTooltip width={190} customStyles={{ marginLeft: "4" }}>
+      <SharedTooltip width={190} style={{ marginLeft: 4 }}>
         <Trans t={t} i18nKey="settings.unverifiedAssets.tooltip" />
       </SharedTooltip>
     ),
@@ -211,6 +218,16 @@ export default function Settings(): ReactElement {
       <SharedToggleButton
         onChange={(toggleValue) => toggleShowUnverified(toggleValue)}
         value={showUnverifiedAssets}
+      />
+    ),
+  }
+
+  const toggleShowNotifications = {
+    title: t("settings.showNotifications"),
+    component: () => (
+      <SharedToggleButton
+        onChange={(toggleValue) => toggleNotifications(toggleValue)}
+        value={shouldShowNotifications}
       />
     ),
   }
@@ -304,7 +321,7 @@ export default function Settings(): ReactElement {
   const autoLockSettings = {
     title: t("settings.autoLockTimer.label"),
     tooltip: () => (
-      <SharedTooltip width={190} customStyles={{ marginLeft: "4" }}>
+      <SharedTooltip width={190} style={{ marginLeft: 4 }}>
         <div className="tooltip">
           <span>{t("settings.autoLockTimer.tooltip")}</span>
         </div>
@@ -364,7 +381,7 @@ export default function Settings(): ReactElement {
     tooltip: () => (
       <SharedTooltip
         width={165}
-        customStyles={{ marginLeft: "4" }}
+        style={{ marginLeft: 4 }}
         verticalPosition="top"
       >
         <Trans
@@ -395,18 +412,19 @@ export default function Settings(): ReactElement {
           FeatureFlags.SUPPORT_ACHIEVEMENTS_BANNER,
           notificationBanner,
         ),
+        autoLockSettings,
       ],
     },
     walletOptions: {
       title: t("settings.group.walletOptions"),
       items: [
+        toggleShowNotifications,
         hideSmallAssetBalance,
         unverifiedAssets,
         customNetworks,
         addCustomAsset,
         enableTestNetworks,
         flashbotsRPC,
-        autoLockSettings,
       ],
     },
     helpCenter: {

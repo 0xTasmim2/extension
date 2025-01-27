@@ -8,6 +8,9 @@ on:
     tags:
       - v*
 
+env:
+  NODE_OPTIONS: --openssl-legacy-provider
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -59,7 +62,7 @@ jobs:
           POAP_API_KEY: ${{ secrets.POAP_API_KEY }}
           DAYLIGHT_API_KEY: ${{ secrets.DAYLIGHT_API_KEY }}
       - name: Create Release and Upload Artifacts
-        uses: softprops/action-gh-release@1e07f4398721186383de40550babbdf2b84acfc5 # v1
+        uses: softprops/action-gh-release@9d7c94cfd0a1f3ed45544c887983e9fa900f0564 # v2.0.4
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/*.zip
@@ -160,6 +163,9 @@ jobs:
     if: ${{ !startsWith(github.ref, 'refs/tags/') }}
     timeout-minutes: 60
     runs-on: ubuntu-latest
+    env:
+      # https://playwright.dev/docs/service-workers-experimental
+      PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS: 1
     steps:
       - uses: actions/checkout@v3
       - name: Read .nvmrc
@@ -237,20 +243,20 @@ jobs:
         uses: actions/cache/restore@v3
         with:
           path: ci/cache
-          # 17094516 is a forking block used in the tests.
-          key: hardhat-17094516-${{ github.ref_name }}
+          # 18291960 is a forking block used in the tests.
+          key: hardhat-18291960-${{ github.ref_name }}
           restore-keys: |
-            hardhat-17094516-
+            hardhat-18291960-
             hardhat-
       - name: Run Hardhat
         env:
           CHAIN_API_URL: https://eth-mainnet.g.alchemy.com/v2/${{ secrets.DEV_ALCHEMY_API_KEY }}
           MAINNET_FORK_CHAIN_ID: 1337
           # We're using a fixed block number as a start of the fork to get
-          # consistent behavior in tests. The `17094516` block is a block at
-          # which the wallet used in tests (`testertesting.eth`) had multiple
-          # assets.
-          FORKING_BLOCK: 17094516
+          # consistent behavior in tests. The `18291960` block is a block at
+          # which the wallet used in tests (`testertesting.eth`) had the two
+          # assets used in e2e tests.
+          FORKING_BLOCK: 18291960
         run: |
           cd ci
           yarn install
@@ -278,4 +284,4 @@ jobs:
         if: always()
         with:
           path: ci/cache
-          key: hardhat-17094516-${{ github.ref_name }}-${{ hashFiles('ci/cache/**/*.json') }}
+          key: hardhat-18291960-${{ github.ref_name }}-${{ hashFiles('ci/cache/**/*.json') }}

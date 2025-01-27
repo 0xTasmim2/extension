@@ -99,33 +99,6 @@ export default class ProviderBridgeService extends BaseService<Events> {
     private preferenceService: PreferenceService,
   ) {
     super()
-
-    browser.runtime.onConnect.addListener(async (port) => {
-      if (port.name === EXTERNAL_PORT_NAME && port.sender?.url) {
-        port.onMessage.addListener((event) => {
-          this.onMessageListener(port as Required<browser.Runtime.Port>, event)
-        })
-        port.onDisconnect.addListener(() => {
-          this.openPorts = this.openPorts.filter(
-            (openPort) => openPort !== port,
-          )
-        })
-        this.openPorts.push(port)
-
-        // we need to send this info ASAP so it arrives before the webpage is initializing
-        // so we can set our provider into the correct state, BEFORE the page has a chance to
-        // to cache it, store it etc.
-        port.postMessage({
-          id: "tallyHo",
-          jsonrpc: "2.0",
-          result: {
-            method: "tally_getConfig",
-            defaultWallet: await this.preferenceService.getDefaultWallet(),
-          },
-        })
-      }
-      // TODO: on internal provider handlers connect, disconnect, account change, network change
-    })
   }
 
   protected override async internalStartService(): Promise<void> {
@@ -232,7 +205,12 @@ export default class ProviderBridgeService extends BaseService<Events> {
         event.request.params,
         origin,
       )
-    } else if (event.request.method === "eth_requestAccounts") {
+    } else if (
+      event.request.method === "eth_requestAccounts" ||
+      // We implement a partial wallet_requestPermissions implementation that
+      // only ever allows access to eth_accounts.
+      event.request.method === "wallet_requestPermissions"
+    ) {
       // if it's external communication AND the dApp does not have permission BUT asks for it
       // then let's ask the user what he/she thinks
 
@@ -249,49 +227,78 @@ export default class ProviderBridgeService extends BaseService<Events> {
         )) as string,
       ).toString()
 
-      // these params are taken directly from the dapp website
-      const [title, faviconUrl] = event.request.params as string[]
+      // these params are taken directly from the dapp website and injected by
+      // /provider-bridge/index.ts . The last two parameters are guaranteed
+      // to be this, and no parameters that might be passed before these should
+      // be read as injected (which can happen in certain invocations of these
+      // methods).
+      const [title, faviconUrl] = (event.request.params as unknown[]).slice(
+        -2,
+      ) as string[]
 
-      const permissionRequest: PermissionRequest = {
-        key: `${origin}_${accountAddress}_${dAppChainID}`,
-        origin,
-        chainID: dAppChainID,
-        faviconUrl: faviconUrl || tab?.favIconUrl || "", // if favicon was not found on the website then try with browser's `tab`
-        title,
-        state: "request",
-        accountAddress,
-      }
-
-      const blockUntilUserAction =
-        await this.requestPermission(permissionRequest)
-
-      await blockUntilUserAction
-
-      const persistedPermission = await this.checkPermission(
-        origin,
-        dAppChainID,
-      )
-
-      if (typeof persistedPermission !== "undefined") {
-        // if agrees then let's return the account data
-        response.result = await this.routeContentScriptRPCRequest(
-          persistedPermission,
-          "eth_accounts",
-          event.request.params,
-          origin,
-        )
-
-        // on dApp connection, persist the current network/origin state
-        await this.internalEthereumProviderService.switchToSupportedNetwork(
-          origin,
-          network,
-        )
-      } else {
-        // if user does NOT agree, then reject
-
+      const existingPermission = await this.checkPermission(origin, dAppChainID)
+      if (
+        // If there's an existing permission record and it's not an explicit
+        // allow, immediately return a rejection.
+        (existingPermission !== undefined &&
+          existingPermission.state !== "allow") ||
+        // If there's an unresolved request for the domain, likewise return a
+        // rejection. We only allow one in-flight permissions request for a
+        // given domain at a time.
+        this.#pendingPermissionsRequests[origin] !== undefined
+      ) {
         response.result = new EIP1193Error(
           EIP1193_ERROR_CODES.userRejectedRequest,
         ).toJSON()
+      } else {
+        const permissionRequest: PermissionRequest = {
+          key: `${origin}_${accountAddress}_${dAppChainID}`,
+          origin,
+          chainID: dAppChainID,
+          faviconUrl: faviconUrl || tab?.favIconUrl || "", // if favicon was not found on the website then try with browser's `tab`
+          title,
+          state: "request",
+          accountAddress,
+        }
+
+        await this.requestPermission(permissionRequest)
+
+        const newlyPersistedPermission = await this.checkPermission(
+          origin,
+          dAppChainID,
+        )
+
+        if (typeof newlyPersistedPermission !== "undefined") {
+          // if agrees then let's return the account data
+
+          if (event.request.method === "wallet_requestPermissions") {
+            response.result = await this.routeContentScriptRPCRequest(
+              newlyPersistedPermission,
+              "wallet_getPermissions",
+              event.request.params,
+              origin,
+            )
+          } else {
+            response.result = await this.routeContentScriptRPCRequest(
+              newlyPersistedPermission,
+              "eth_accounts",
+              event.request.params,
+              origin,
+            )
+          }
+
+          // on dApp connection, persist the current network/origin state
+          await this.internalEthereumProviderService.switchToSupportedNetwork(
+            origin,
+            network,
+          )
+        } else {
+          // if user does NOT agree, then reject
+
+          response.result = new EIP1193Error(
+            EIP1193_ERROR_CODES.userRejectedRequest,
+          ).toJSON()
+        }
       }
     } else if (event.request.method === "eth_accounts") {
       const dAppChainID = Number(
@@ -369,11 +376,25 @@ export default class ProviderBridgeService extends BaseService<Events> {
     permissionRequest: PermissionRequest,
   ): Promise<unknown> {
     this.emitter.emit("requestPermission", permissionRequest)
-    await showExtensionPopup(AllowedQueryParamPage.dappPermission)
 
-    return new Promise((resolve) => {
+    const permissionPromise = new Promise((resolve) => {
       this.#pendingPermissionsRequests[permissionRequest.origin] = resolve
+
+      showExtensionPopup(AllowedQueryParamPage.dappPermission, {}, () => {
+        resolve("Time to move on")
+      })
     })
+
+    const result = await permissionPromise
+
+    if (this.#pendingPermissionsRequests[permissionRequest.origin]) {
+      // Just in case this is a different promise, go ahead and resolve it with
+      // the same result.
+      this.#pendingPermissionsRequests[permissionRequest.origin](result)
+      delete this.#pendingPermissionsRequests[permissionRequest.origin]
+    }
+
+    return result
   }
 
   async grantPermission(permission: PermissionRequest): Promise<void> {
@@ -382,10 +403,7 @@ export default class ProviderBridgeService extends BaseService<Events> {
 
     await this.db.setPermission(permission)
 
-    if (this.#pendingPermissionsRequests[permission.origin]) {
-      this.#pendingPermissionsRequests[permission.origin](permission)
-      delete this.#pendingPermissionsRequests[permission.origin]
-    }
+    this.#pendingPermissionsRequests[permission.origin]?.(permission)
   }
 
   async denyOrRevokePermission(permission: PermissionRequest): Promise<void> {
@@ -403,10 +421,14 @@ export default class ProviderBridgeService extends BaseService<Events> {
       permission.chainID,
     )
 
-    if (this.#pendingPermissionsRequests[permission.origin]) {
-      this.#pendingPermissionsRequests[permission.origin]("Time to move on")
-      delete this.#pendingPermissionsRequests[permission.origin]
-    }
+    this.#pendingPermissionsRequests[permission.origin]?.("Time to move on")
+
+    // If the removed permission is for the origin's current network, clear
+    // that state so the origin isn't stuck on a disconnected network.
+    this.internalEthereumProviderService.unsetCurrentNetworkForOrigin(
+      permission.origin,
+      permission.chainID,
+    )
 
     if (deleted > 0) {
       this.notifyContentScriptsAboutAddressChange()
@@ -464,6 +486,20 @@ export default class ProviderBridgeService extends BaseService<Events> {
         case "eth_requestAccounts":
         case "eth_accounts":
           return [enablingPermission.accountAddress]
+        case "wallet_requestPermissions":
+        case "wallet_getPermissions":
+          return [
+            {
+              parentCapability: "eth_accounts",
+              caveats: [
+                {
+                  type: "restrictReturnedAccounts",
+                  value: [enablingPermission.accountAddress],
+                },
+              ],
+              date: Date.now(),
+            },
+          ]
         case "eth_signTypedData":
         case "eth_signTypedData_v1":
         case "eth_signTypedData_v3":
@@ -612,5 +648,45 @@ export default class ProviderBridgeService extends BaseService<Events> {
     } else {
       request.reject()
     }
+  }
+
+  async connectPort(port: Runtime.Port) {
+    if (port.name === EXTERNAL_PORT_NAME && port.sender?.url) {
+      port.onMessage.addListener((event) => {
+        if (
+          !event ||
+          typeof event !== "object" ||
+          !("id" in event) ||
+          typeof event.id !== "string" ||
+          !("request" in event) ||
+          typeof event.request !== "object"
+        ) {
+          logger.error("Unexpected event on port", event)
+          return
+        }
+
+        this.onMessageListener(
+          port as Required<browser.Runtime.Port>,
+          event as PortRequestEvent,
+        )
+      })
+      port.onDisconnect.addListener(() => {
+        this.openPorts = this.openPorts.filter((openPort) => openPort !== port)
+      })
+      this.openPorts.push(port)
+
+      // we need to send this info ASAP so it arrives before the webpage is initializing
+      // so we can set our provider into the correct state, BEFORE the page has a chance to
+      // to cache it, store it etc.
+      port.postMessage({
+        id: "tallyHo",
+        jsonrpc: "2.0",
+        result: {
+          method: "tally_getConfig",
+          defaultWallet: await this.preferenceService.getDefaultWallet(),
+        },
+      })
+    }
+    // TODO: on internal provider handlers connect, disconnect, account change, network change
   }
 }

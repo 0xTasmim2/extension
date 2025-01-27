@@ -6,7 +6,6 @@ import { AddressOnNetwork } from "../../accounts"
 import DEFAULT_PREFERENCES, { DEFAULT_AUTOLOCK_INTERVAL } from "./defaults"
 import { AccountSignerSettings } from "../../ui"
 import { AccountSignerWithId } from "../../signing"
-import { AnalyticsPreferences } from "./types"
 import { NETWORK_BY_CHAIN_ID } from "../../constants"
 import { UNIXTime } from "../../types"
 
@@ -45,22 +44,27 @@ const getNewUrlsForTokenList = (
   return newURLs
 }
 
-// The idea is to use this interface to describe the data structure stored in indexedDb
-// In the future this might also have a runtime type check capability, but it's good enough for now.
-// NOTE: Check if can be merged with preferences/types.ts
+export type TokenListPreferences = {
+  autoUpdate: boolean
+  urls: string[]
+}
+
+export type AnalyticsPreferences = {
+  isEnabled: boolean
+  hasDefaultOnBeenTurnedOn: boolean
+}
+
 export type Preferences = {
   id?: number
   savedAt: number
-  tokenLists: { autoUpdate: boolean; urls: string[] }
+  tokenLists: TokenListPreferences
   currency: FiatCurrency
   defaultWallet: boolean
-  currentAddress?: string
   selectedAccount: AddressOnNetwork
-  analytics: {
-    isEnabled: boolean
-    hasDefaultOnBeenTurnedOn: boolean
-  }
+  accountSignersSettings: AccountSignerSettings[]
+  analytics: AnalyticsPreferences
   autoLockInterval: UNIXTime
+  shouldShowNotifications: boolean
 }
 
 /**
@@ -71,6 +75,7 @@ export type Preferences = {
 export type ManuallyDismissableItem =
   | "analytics-enabled-banner"
   | "copy-sensitive-material-warning"
+  | "testnet-portal-is-open-banner"
 /**
  * Items that the user will see once and will not be auto-displayed again. Can
  * be used for tours, or for popups that can be retriggered but will not
@@ -142,19 +147,21 @@ export class PreferenceDatabase extends Dexie {
         tx
           .table("preferences")
           .toCollection()
-          .modify((storedPreferences: Preferences) => {
-            if (storedPreferences.currentAddress) {
-              // eslint-disable-next-line no-param-reassign
-              storedPreferences.selectedAccount = {
-                network: DEFAULT_PREFERENCES.selectedAccount.network,
-                address: storedPreferences.currentAddress,
+          .modify(
+            (storedPreferences: Preferences & { currentAddress?: string }) => {
+              if (storedPreferences.currentAddress) {
+                // eslint-disable-next-line no-param-reassign
+                storedPreferences.selectedAccount = {
+                  network: DEFAULT_PREFERENCES.selectedAccount.network,
+                  address: storedPreferences.currentAddress,
+                }
+              } else {
+                // eslint-disable-next-line no-param-reassign
+                storedPreferences.selectedAccount =
+                  DEFAULT_PREFERENCES.selectedAccount
               }
-            } else {
-              // eslint-disable-next-line no-param-reassign
-              storedPreferences.selectedAccount =
-                DEFAULT_PREFERENCES.selectedAccount
-            }
-          }),
+            },
+          ),
       )
 
     // Add the new default token list
@@ -417,13 +424,26 @@ export class PreferenceDatabase extends Dexie {
         }),
     )
 
+    // Add default notifications and set as default off.
+    this.version(21).upgrade((tx) =>
+      tx
+        .table("preferences")
+        .toCollection()
+        .modify((storedPreferences: Omit<Preferences, "showNotifications">) => {
+          Object.assign(storedPreferences, { showNotifications: false })
+        }),
+    )
+
     // This is the old version for populate
     // https://dexie.org/docs/Dexie/Dexie.on.populate-(old-version)
     // The this does not behave according the new docs, but works
     this.on("populate", (tx: Transaction) => {
       // This could be tx.preferences but the typing for populate
       // is not generic so it does not know about the preferences table
-      tx.table("preferences").add(DEFAULT_PREFERENCES)
+      tx.table<Preferences, string>("preferences").add({
+        savedAt: Date.now(),
+        ...DEFAULT_PREFERENCES,
+      })
     })
   }
 
@@ -438,6 +458,18 @@ export class PreferenceDatabase extends Dexie {
       .toCollection()
       .modify((storedPreferences: Preferences) => {
         const update: Partial<Preferences> = { autoLockInterval: newValue }
+
+        Object.assign(storedPreferences, update)
+      })
+  }
+
+  async setShouldShowNotifications(newValue: boolean): Promise<void> {
+    await this.preferences
+      .toCollection()
+      .modify((storedPreferences: Preferences) => {
+        const update: Partial<Preferences> = {
+          shouldShowNotifications: newValue,
+        }
 
         Object.assign(storedPreferences, update)
       })

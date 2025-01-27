@@ -15,7 +15,6 @@ import {
   isTahoAccountPayload,
 } from "@tallyho/provider-bridge-shared"
 import { EventEmitter } from "events"
-import monitorForWalletConnectionPrompts from "./wallet-connection-handlers"
 
 const METAMASK_STATE_MOCK = {
   accounts: null,
@@ -81,7 +80,7 @@ export default class TahoWindowProvider extends EventEmitter {
       ) {
         if (
           event.origin !== this.transport.origin || // filter to messages claiming to be from the provider-bridge script
-          event.source !== window || // we want to recieve messages only from the provider-bridge script
+          event.source !== window || // we want to receive messages only from the provider-bridge script
           event.data.target !== WINDOW_PROVIDER_TARGET
         ) {
           return
@@ -143,7 +142,6 @@ export default class TahoWindowProvider extends EventEmitter {
      * The request function should always have a provider object set.
      */
     this.request = this.request.bind(this)
-    monitorForWalletConnectionPrompts()
     this.transport.addEventListener(internalListener)
     this.transport.addEventListener(this.internalBridgeListener.bind(this))
   }
@@ -155,7 +153,7 @@ export default class TahoWindowProvider extends EventEmitter {
     if (isWindowResponseEvent(event)) {
       if (
         event.origin !== this.transport.origin || // filter to messages claiming to be from the provider-bridge script
-        event.source !== window || // we want to recieve messages only from the provider-bridge script
+        event.source !== window || // we want to receive messages only from the provider-bridge script
         event.data.target !== WINDOW_PROVIDER_TARGET
       ) {
         return
@@ -310,10 +308,10 @@ export default class TahoWindowProvider extends EventEmitter {
   }
 
   override emit(event: string | symbol, ...args: unknown[]): boolean {
-    const hadAdditionalListeners = window.walletRouter?.reemitTahoEvent(
-      event,
-      ...args,
-    )
+    const hadAdditionalListeners =
+      typeof window === "undefined"
+        ? undefined
+        : window.walletRouter?.reemitTahoEvent(event, ...args)
 
     const hadDirectListeners = super.emit(event, ...args)
 

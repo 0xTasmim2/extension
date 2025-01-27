@@ -56,6 +56,8 @@ to only rebuild the Firefox extension on change:
 $ yarn start --config-name firefox
 # On change, rebuild the firefox and brave extensions but not others.
 $ yarn start --config-name firefox --config-name brave
+# On change, rebuild the chrome
+$ yarn start --config-name chrome
 ```
 
 ### Note for some Linux distributions
@@ -332,17 +334,35 @@ ui/ # @tallyho/tally-ui package
 
 Firefox requires to upload source code if minifier is used and to be able to compile identical output to the uploaded package. Our builds are environment dependent at the moment because of the minification and source map process. Long term solution will be to upgrade our build process to be able to produce identical file assets, but until then we use Docker.
 
-- install and setup docker: https://docs.docker.com/get-docker/
-- git clone git@github.com:tallycash/extension.git tallyho-firefox
-- cd tallyho-firefox
-- git checkout tags/latest_release-tag
-- .env.prod: fill in the prod API keys
-- `./firefox-build.sh`
-- mv firefox.zip ../
-- git clean -fdx
-- rm -rf .git
-- cd ..
-- zip -r tallyho-firefox.zip tallyho-firefox
+1. Install and setup container manger, like at [nerdctl](https://github.com/containerd/nerdctl),[podman](https://podman.io/) or [docker](https://www.docker.com/)
+2. Clone git repository
+
+```sh
+git clone https://github.com:tallycash/extension.git tallyho-firefox
+```
+
+3. Change the directory
+
+```sh
+cd tallyho-firefox
+git checkout tags/latest_release-tag
+```
+
+4. Fill the production keys `.env.prod` file
+
+5. Run build script
+
+```sh
+./firefox-build.sh
+```
+
+6. Archive it
+
+```sh
+zip -r tallyho-firefox.zip dist/firefox
+```
+
+7. You can delete everything if you want except for the archive
 
 ## Localization
 

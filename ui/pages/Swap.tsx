@@ -391,26 +391,26 @@ export default function Swap(): ReactElement {
         <div className="header">
           <SharedActivityHeader label={t("swap.title")} activity="swap" />
           <ReadOnlyNotice isLite />
-          {isDisabled(FeatureFlags.HIDE_TOKEN_FEATURES) &&
-            isDisabled(FeatureFlags.HIDE_SWAP_REWARDS) && (
+          {isEnabled(FeatureFlags.SHOW_TOKEN_FEATURES) &&
+            isEnabled(FeatureFlags.SHOW_SWAP_REWARDS) && (
               // TODO: Add onClick function after design is ready
               <SharedIcon
                 icon="cog@2x.png"
                 width={20}
                 color="var(--green-60)"
                 hoverColor="#fff"
-                customStyles="margin: 17px 0 25px;"
+                style={{ margin: "17px 0 25px" }}
               />
             )}
         </div>
-        {isDisabled(FeatureFlags.HIDE_TOKEN_FEATURES) &&
-          isEnabled(FeatureFlags.HIDE_SWAP_REWARDS) && (
+        {isEnabled(FeatureFlags.SHOW_TOKEN_FEATURES) &&
+          isDisabled(FeatureFlags.SHOW_SWAP_REWARDS) && (
             <SharedBanner
               id="swap_rewards"
               canBeClosed
               icon="notif-announcement"
               iconColor="var(--link)"
-              customStyles="margin-bottom: 16px"
+              style={{ marginBottom: 16 }}
             >
               {t("swap.swapRewardsTeaser")}
             </SharedBanner>
@@ -501,7 +501,7 @@ export default function Swap(): ReactElement {
               )}
             </div>
           </div>
-          {!isEnabled(FeatureFlags.HIDE_SWAP_REWARDS) ? (
+          {isEnabled(FeatureFlags.SHOW_SWAP_REWARDS) ? (
             <div className="settings_wrap">
               <SwapRewardsCard />
             </div>

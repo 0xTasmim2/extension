@@ -15,13 +15,12 @@ export { default as NameService } from "./name"
 export { default as PreferenceService } from "./preferences"
 export { default as ProviderBridgeService } from "./provider-bridge"
 export { default as InternalEthereumProviderService } from "./internal-ethereum-provider"
-export { default as DoggoService } from "./doggo"
+export { default as IslandService } from "./island"
 export { default as TelemetryService } from "./telemetry"
 export { default as LedgerService } from "./ledger"
 export { default as SigningService } from "./signing"
 export { default as AnalyticsService } from "./analytics"
 export { default as NFTsService } from "./nfts"
-export { default as WalletConnectService } from "./wallet-connect"
 
 export function getNoopService<T>(): T {
   return Promise.resolve({

@@ -1,6 +1,4 @@
 import {
-  AlchemyProvider,
-  AlchemyWebSocketProvider,
   EventType,
   JsonRpcBatchProvider,
   JsonRpcProvider,
@@ -16,6 +14,7 @@ import {
   ARBITRUM_ONE,
   OPTIMISM,
   FORK,
+  ARBITRUM_SEPOLIA,
 } from "../../constants"
 import logger from "../../lib/logger"
 import { AnyEVMTransaction } from "../../networks"
@@ -27,6 +26,7 @@ import {
 } from "../../lib/alchemy"
 import { FeatureFlags, isEnabled } from "../../features"
 import { RpcConfig } from "./db"
+import TahoAlchemyProvider from "./taho-provider"
 
 export type ProviderCreator = {
   type: "alchemy" | "custom" | "generic"
@@ -50,6 +50,7 @@ export const ALCHEMY_RPC_METHOD_PROVIDER_ROUTING = {
     "eth_sendRawTransaction", // broadcast should always go to alchemy
     "eth_subscribe", // generic http providers do not support this, but dapps need this
     "eth_estimateGas", // just want to be safe, when setting up a transaction
+    "eth_getLogs", // to avoid eth_getLogs block range limitations
   ],
   [OPTIMISM.chainID]: [
     "eth_call", // this is causing issues on optimism with ankr and is used heavily by uniswap
@@ -245,6 +246,21 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
   // for reconnects when relevant.
   private currentProviderIndex = 0
 
+  // If nonzero and the underlying provider is a batch provider, forces the
+  // batch size to be no more than this number, holding other requests until
+  // the existing batch has cleared.
+  private forcedBatchMaxSize: number = 0
+
+  // If this promise is set, new RPC calls will await on it before being
+  // processed. When forcedBatchMaxSize is nonzero and that number of RPC calls
+  // are pending, this promise will be set so subsequent requests will wait
+  // until the batch flushes.
+  private forcedBatchMaxPromise: Promise<void> | undefined = undefined
+
+  // During max size update, this value is set so that the value is not
+  // decreased by multiple failed requests.
+  private forcedBatchMaxPreviousSize: number = 0
+
   // TEMPORARY cache for latest account balances to reduce number of rpc calls
   // This is intended as a temporary fix to the burst of account enrichment that
   // happens when the extension is first loaded up as a result of activity emission
@@ -356,6 +372,45 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
       return cachedResult
     }
 
+    if (this.forcedBatchMaxPromise) {
+      await this.forcedBatchMaxPromise
+    }
+
+    const pendingBatch =
+      "_pendingBatch" in this.currentProvider
+        ? // Accessing ethers internals for forced max batch sizing.
+          // eslint-disable-next-line no-underscore-dangle
+          (this.currentProvider._pendingBatch as { length: number } | undefined)
+        : undefined
+    const pendingBatchSize = pendingBatch?.length
+    const existingProviderIndex = this.currentProviderIndex
+
+    if (
+      pendingBatch &&
+      this.forcedBatchMaxSize &&
+      // Accessing ethers internals for forced max batch sizing.
+      // eslint-disable-next-line no-underscore-dangle
+      pendingBatch.length >= this.forcedBatchMaxSize
+    ) {
+      this.forcedBatchMaxPromise = new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          const latestPendingBatch =
+            "_pendingBatch" in this.currentProvider
+              ? // Accessing ethers internals for forced max batch sizing.
+                // eslint-disable-next-line no-underscore-dangle
+                (this.currentProvider._pendingBatch as
+                  | { length: number }
+                  | undefined)
+              : undefined
+
+          if ((latestPendingBatch?.length ?? 0) < this.forcedBatchMaxSize) {
+            resolve()
+            clearInterval(checkInterval)
+          }
+        }, 5)
+      })
+    }
+
     try {
       if (isClosedOrClosingWebSocketProvider(this.currentProvider)) {
         // Detect disconnected WebSocket and immediately throw.
@@ -398,6 +453,42 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
       const stringifiedError = String(error)
 
       if (
+        stringifiedError.match(/Batch size too large/) &&
+        (pendingBatchSize === undefined || pendingBatchSize === 0)
+      ) {
+        this.forcedBatchMaxPreviousSize =
+          pendingBatch?.length ?? pendingBatchSize ?? 1
+        this.forcedBatchMaxSize =
+          (pendingBatch?.length ?? pendingBatchSize ?? 2) / 2
+
+        logger.debug(
+          "Setting a max batch size of",
+          this.forcedBatchMaxSize,
+          "on chain",
+          this.chainID,
+          "and retrying: ",
+          method,
+          params,
+        )
+
+        return this.routeRpcCall(messageId)
+      }
+
+      if (stringifiedError.match(/Batch size too large/)) {
+        logger.debug(
+          "Using max batch size of",
+          this.forcedBatchMaxSize,
+          "on chain",
+          this.chainID,
+          "and retrying: ",
+          method,
+          params,
+        )
+
+        return this.routeRpcCall(messageId)
+      }
+
+      if (
         /**
          * WebSocket is already in CLOSING - We are reconnecting
          * - bad response
@@ -417,9 +508,22 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
          * used for invalid responses from the server, which we can retry on
          */
         stringifiedError.match(
-          /WebSocket is already in CLOSING|bad response|missing response|we can't execute this request|failed response|TIMEOUT|NETWORK_ERROR/,
+          /WebSocket is already in CLOSING|bad response|missing response|we can't execute this request|failed response|TIMEOUT|NETWORK_ERROR|call rate limit exhausted/,
         )
       ) {
+        // If a new provider is already in the process of being tried, go ahead
+        // and fire off into the new provider.
+        if (this.currentProviderIndex !== existingProviderIndex) {
+          logger.debug(
+            "Retrying on newly connected provider on chain",
+            this.chainID,
+            ": ",
+            method,
+            params,
+          )
+          return await this.routeRpcCall(messageId)
+        }
+
         // If there is another provider to try - try to send the message on that provider
         if (this.currentProviderIndex + 1 < this.providerCreators.length) {
           return await this.attemptToSendMessageOnNewProvider(messageId)
@@ -440,6 +544,8 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
         stringifiedError.match(/bad result from backend/)
       ) {
         if (
+          // If the current provider is the one we tried with initially.
+          this.currentProviderIndex === existingProviderIndex &&
           // If there is another provider to try and we have exceeded the
           // number of retries try to send the message on that provider
           this.currentProviderIndex + 1 < this.providerCreators.length &&
@@ -452,6 +558,8 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
         logger.debug(
           "Backing off for",
           backoff,
+          "on chain",
+          this.chainID,
           "and retrying: ",
           method,
           params,
@@ -462,7 +570,7 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
             await this.reconnectProvider()
           }
 
-          logger.debug("Retrying", method, params)
+          logger.debug("Retrying", "on chain", this.chainID, method, params)
           return this.routeRpcCall(messageId)
         })
       }
@@ -472,6 +580,8 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
         error,
         "for provider",
         this.currentProvider,
+        "on chain",
+        this.chainID,
       )
 
       delete this.messagesToSend[messageId]
@@ -603,7 +713,7 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
       // If every other provider failed and we're on the alchemy provider,
       // reconnect to the first provider once we've handled this request
       // as we should limit relying on alchemy as a fallback
-      if (isAlchemyFallback) {
+      if (isAlchemyFallback && this.currentProviderIndex !== 0) {
         this.currentProviderIndex = 0
         this.reconnectProvider()
       }
@@ -660,7 +770,11 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
       this.subscriptions.push(subscription)
     } else {
       logger.warn(
-        "Current provider is not a WebSocket provider; subscription " +
+        "Current provider ",
+        this.currentProvider,
+        " for ",
+        this.network,
+        "is not a WebSocket provider; subscription " +
           "will not work until a WebSocket provider connects.",
       )
     }
@@ -708,7 +822,11 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
           }
         } catch (innerError) {
           logger.error(
-            `Error handling incoming pending transaction hash: ${transactionHash}`,
+            "Error handling incoming pending transaction hash:",
+            transactionHash,
+            "on chain",
+            this.chainID,
+            ":",
             innerError,
           )
         }
@@ -802,6 +920,8 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
     logger.debug(
       "Disconnecting current provider; websocket: ",
       this.currentProvider instanceof WebSocketProvider,
+      "on chain",
+      this.chainID,
       ".",
     )
     if (this.currentProvider instanceof WebSocketProvider) {
@@ -858,6 +978,8 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
     logger.debug(
       "Reconnecting provider at index",
       this.currentProviderIndex,
+      "on chain",
+      this.chainID,
       "...",
     )
 
@@ -882,7 +1004,7 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
    * @returns A boolean indicating if websocket subscription was successful or not
    */
   private async resubscribe(provider: JsonRpcProvider): Promise<boolean> {
-    logger.debug("Resubscribing subscriptions...")
+    logger.debug("Resubscribing subscriptions", "on chain", this.chainID, "...")
 
     if (
       isClosedOrClosingWebSocketProvider(provider) ||
@@ -924,7 +1046,7 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
       }
     })
 
-    logger.debug("Subscriptions resubscribed...")
+    logger.debug("Subscriptions resubscribed", "on chain", this.chainID, "...")
     return true
   }
 
@@ -1028,6 +1150,8 @@ export default class SerialFallbackProvider extends JsonRpcProvider {
           } catch (error) {
             logger.error(
               `Error handling incoming pending transaction: ${result}`,
+              "on chain",
+              this.chainID,
               error,
             )
           }
@@ -1091,21 +1215,32 @@ export function makeSerialFallbackProvider(
     ])
   }
 
+  if (
+    chainID === ARBITRUM_SEPOLIA.chainID &&
+    process.env.ARBITRUM_FORK_RPC !== undefined &&
+    process.env.ARBITRUM_FORK_RPC.trim() !== "" &&
+    process.env.SUPPORT_THE_ISLAND_ON_TENDERLY === "true"
+  ) {
+    // eslint-disable-next-line no-console
+    console.log(
+      "%c🦴 Using Tenderly fork as Arbitrum Sepolia provider",
+      "background: #071111; color: #fff; font-weight: 900;",
+    )
+    return new SerialFallbackProvider(ARBITRUM_SEPOLIA.chainID, [
+      {
+        type: "generic" as const,
+        creator: () => new JsonRpcBatchProvider(process.env.ARBITRUM_FORK_RPC),
+      },
+    ])
+  }
+
   const alchemyProviderCreators: ProviderCreator[] =
     ALCHEMY_SUPPORTED_CHAIN_IDS.has(chainID)
       ? [
           {
             type: "alchemy" as const,
             creator: () =>
-              new AlchemyProvider(getNetwork(Number(chainID)), ALCHEMY_KEY),
-          },
-          {
-            type: "alchemy" as const,
-            creator: () =>
-              new AlchemyWebSocketProvider(
-                getNetwork(Number(chainID)),
-                ALCHEMY_KEY,
-              ),
+              new TahoAlchemyProvider(getNetwork(Number(chainID)), ALCHEMY_KEY),
           },
         ]
       : []

@@ -17,7 +17,7 @@ import {
   CHAIN_ID_TO_RPC_URLS,
   DEFAULT_NETWORKS,
   ETH,
-  GOERLI,
+  SEPOLIA,
   isBuiltInNetwork,
   NETWORK_BY_CHAIN_ID,
   POLYGON,
@@ -140,7 +140,7 @@ export class ChainDatabase extends Dexie {
     this.version(4).upgrade((tx) => {
       tx.table("accountsToTrack")
         .where("network.chainID")
-        .equals(GOERLI.chainID)
+        .equals(SEPOLIA.chainID)
         .delete()
     })
 
@@ -292,6 +292,7 @@ export class ChainDatabase extends Dexie {
       this.baseAssets,
       this.rpcConfig,
       this.accountsToTrack,
+      this.customRpcConfig,
       async () => {
         await Promise.all([
           this.networks.where({ chainID }).delete(),

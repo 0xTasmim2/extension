@@ -5,7 +5,8 @@ import {
   AVALANCHE,
   BINANCE_SMART_CHAIN,
   ETHEREUM,
-  GOERLI,
+  SEPOLIA,
+  ARBITRUM_SEPOLIA,
   isBuiltInNetwork,
   OPTIMISM,
   POLYGON,
@@ -36,7 +37,12 @@ const disabledChainIDs = [ARBITRUM_NOVA.chainID]
 
 const testNetworks = [
   {
-    network: GOERLI,
+    network: SEPOLIA,
+    info: i18n.t("protocol.testnet"),
+    isDisabled: false,
+  },
+  {
+    network: ARBITRUM_SEPOLIA,
     info: i18n.t("protocol.testnet"),
     isDisabled: false,
   },

@@ -35,17 +35,14 @@ function DefaultConnectionPopover({ close }: PopoverProps): ReactElement {
     >
       <section>
         <SharedIcon
+          id="close"
           icon="close.svg"
           width={12}
           aria-label={tShared("close")}
           onClick={animateThenClose}
           color="var(--green-20)"
           hoverColor="var(--white)"
-          customStyles={`
-            position: absolute;
-            top: 16px;
-            right: 16px;
-          `}
+          style={{ position: "absolute", top: 16, right: 16 }}
         />
 
         <h3>{t("title")}</h3>

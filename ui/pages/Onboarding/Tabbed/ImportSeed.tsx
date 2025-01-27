@@ -105,7 +105,7 @@ export default function ImportSeed(props: Props): ReactElement {
         illustration="doggo_import.svg"
       >
         <>
-          {!isEnabled(FeatureFlags.HIDE_IMPORT_DERIVATION_PATH) && (
+          {isEnabled(FeatureFlags.SHOW_IMPORT_DERIVATION_PATH) && (
             <div className="select_wrapper">
               <OnboardingDerivationPathSelect
                 defaultPath={DefaultPathIndex.bip44}
@@ -120,14 +120,15 @@ export default function ImportSeed(props: Props): ReactElement {
           />
           <div className="bottom">
             <SharedButton
+              id="import"
               style={{
                 width: "100%",
                 boxSizing: "border-box",
               }}
               size={
-                isEnabled(FeatureFlags.HIDE_IMPORT_DERIVATION_PATH)
-                  ? "medium"
-                  : "large"
+                isEnabled(FeatureFlags.SHOW_IMPORT_DERIVATION_PATH)
+                  ? "large"
+                  : "medium"
               }
               type="primary"
               isDisabled={!recoveryPhrase || isImporting}
@@ -136,7 +137,7 @@ export default function ImportSeed(props: Props): ReactElement {
             >
               {t("submit")}
             </SharedButton>
-            {!isEnabled(FeatureFlags.HIDE_IMPORT_DERIVATION_PATH) && (
+            {isEnabled(FeatureFlags.SHOW_IMPORT_DERIVATION_PATH) && (
               <button
                 className="help_button"
                 type="button"
@@ -154,12 +155,12 @@ export default function ImportSeed(props: Props): ReactElement {
           width: 100%;
           display: flex;
           flex-direction: column;
-          margin-top: ${isEnabled(FeatureFlags.HIDE_IMPORT_DERIVATION_PATH)
-            ? "48px"
-            : "24px"};
-          margin-bottom: ${isEnabled(FeatureFlags.HIDE_IMPORT_DERIVATION_PATH)
+          margin-top: ${isEnabled(FeatureFlags.SHOW_IMPORT_DERIVATION_PATH)
             ? "24px"
-            : "16px"};
+            : "48px"};
+          margin-bottom: ${isEnabled(FeatureFlags.SHOW_IMPORT_DERIVATION_PATH)
+            ? "16px"
+            : "24px"};
         }
         .help_button {
           width: 320px;
@@ -179,6 +180,7 @@ export default function ImportSeed(props: Props): ReactElement {
           margin-top: 16px;
         }
         .select_wrapper {
+          width: 100%;
           margin-bottom: 24px;
         }
       `}</style>

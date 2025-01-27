@@ -13,10 +13,13 @@ import LiveReloadPlugin from "webpack-livereload-plugin"
 import CopyPlugin, { ObjectPattern } from "copy-webpack-plugin"
 import ForkTsCheckerWebpackPlugin from "fork-ts-checker-webpack-plugin"
 import WebExtensionArchivePlugin from "./build-utils/web-extension-archive-webpack-plugin"
-import InjectWindowProvider from "./build-utils/inject-window-provider"
 import "dotenv-defaults/config"
 
 const supportedBrowsers = ["chrome"]
+
+if (process.env.SUPPORT_BROWSER === "firefox") {
+  supportedBrowsers.push("firefox")
+}
 
 // Replicated and adjusted for each target browser and the current build mode.
 const baseConfig: Configuration = {
@@ -26,7 +29,6 @@ const baseConfig: Configuration = {
     popup: "./src/popup.ts",
     tab: "./src/tab.ts",
     background: "./src/background.ts",
-    "background-ui": "./src/background-ui.ts",
     "window-provider": "./src/window-provider.ts",
     "provider-bridge": "./src/provider-bridge.ts",
   },
@@ -68,7 +70,6 @@ const baseConfig: Configuration = {
     },
   },
   plugins: [
-    new InjectWindowProvider(),
     new Dotenv({
       defaults: true,
       systemvars: true,

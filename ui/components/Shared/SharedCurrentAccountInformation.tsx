@@ -2,8 +2,10 @@ import React, { ReactElement } from "react"
 import classNames from "classnames"
 import SharedIcon from "./SharedIcon"
 import { useAreInternalSignersUnlocked } from "../../hooks/signing-hooks"
+import SharedAvatar from "./SharedAvatar"
 
 type Props = {
+  address: string
   shortenedAddress: string
   name: string | undefined
   avatarURL: string | undefined
@@ -12,6 +14,7 @@ type Props = {
 }
 
 export default function SharedCurrentAccountInformation({
+  address,
   shortenedAddress,
   name,
   avatarURL,
@@ -22,10 +25,15 @@ export default function SharedCurrentAccountInformation({
   const icon = areInternalSignersUnlocked ? "unlock" : "lock"
   return (
     <div className={classNames("account_info_wrap", { hover: showHoverStyle })}>
-      <span className="account_info_label ellipsis">
+      <span title={address} className="account_info_label ellipsis">
         {name ?? shortenedAddress}
       </span>
-      <div className="avatar" />
+      <SharedAvatar
+        avatarURL={avatarURL}
+        backupAvatar="./images/portrait.png"
+        width="32px"
+        style={{ marginLeft: 8 }}
+      />
       {showLockStatus && (
         <div data-testid="lock" className="lock_icon_wrap">
           <SharedIcon
@@ -44,16 +52,6 @@ export default function SharedCurrentAccountInformation({
             font-weight: 500;
             position: relative;
             min-width: 0; // Allow the account address/name to collapse to an ellipsis.
-          }
-          .avatar {
-            border-radius: 12px;
-            width: 32px;
-            height: 32px;
-            margin-left: 8px;
-            background: url("${avatarURL ?? "./images/portrait.png"}");
-            background-color: var(--green-40);
-            background-size: cover;
-            flex-shrink: 0;
           }
           .hover:hover .account_info_label {
             color: var(--trophy-gold);

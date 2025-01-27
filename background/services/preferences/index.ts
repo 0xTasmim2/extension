@@ -1,13 +1,16 @@
+import browser from "webextension-polyfill"
 import { FiatCurrency } from "../../assets"
 import { AddressOnNetwork, NameOnNetwork } from "../../accounts"
 import { ServiceLifecycleEvents, ServiceCreatorFunction } from "../types"
 
 import {
   AnalyticsPreferences,
-  Preferences,
+  Preferences as DbPreferences,
   TokenListPreferences,
-} from "./types"
-import { DismissableItem, getOrCreateDB, PreferenceDatabase } from "./db"
+  DismissableItem,
+  getOrCreateDB,
+  PreferenceDatabase,
+} from "./db"
 import BaseService from "../base"
 import { normalizeEVMAddress } from "../../lib/utils"
 import { ETHEREUM, OPTIMISM, ARBITRUM_ONE } from "../../constants"
@@ -16,7 +19,14 @@ import { HexString, UNIXTime } from "../../types"
 import { AccountSignerSettings } from "../../ui"
 import { AccountSignerWithId } from "../../signing"
 
-export { ManuallyDismissableItem, SingleShotItem, DismissableItem } from "./db"
+export {
+  AnalyticsPreferences,
+  ManuallyDismissableItem,
+  SingleShotItem,
+  DismissableItem,
+} from "./db"
+
+export type Preferences = Omit<DbPreferences, "id" | "savedAt">
 
 type AddressBookEntry = {
   network: EVMNetwork
@@ -99,11 +109,13 @@ interface Events extends ServiceLifecycleEvents {
   initializeDefaultWallet: boolean
   initializeSelectedAccount: AddressOnNetwork
   initializeShownDismissableItems: DismissableItem[]
+  initializeNotificationsPreferences: boolean
   updateAnalyticsPreferences: AnalyticsPreferences
   addressBookEntryModified: AddressBookEntry
   updatedSignerSettings: AccountSignerSettings[]
   updateAutoLockInterval: UNIXTime
   dismissableItemMarkedAsShown: DismissableItem
+  setNotificationsPermission: boolean
 }
 
 /*
@@ -145,6 +157,11 @@ export default class PreferenceService extends BaseService<Events> {
     this.emitter.emit(
       "initializeShownDismissableItems",
       await this.getShownDismissableItems(),
+    )
+
+    this.emitter.emit(
+      "initializeNotificationsPreferences",
+      await this.getShouldShowNotificationsPreferences(),
     )
   }
 
@@ -253,6 +270,25 @@ export default class PreferenceService extends BaseService<Events> {
     const { analytics } = await this.db.getPreferences()
 
     this.emitter.emit("updateAnalyticsPreferences", analytics)
+  }
+
+  async getShouldShowNotificationsPreferences(): Promise<boolean> {
+    return (await this.db.getPreferences()).shouldShowNotifications
+  }
+
+  async setShouldShowNotifications(shouldShowNotifications: boolean) {
+    if (shouldShowNotifications) {
+      const granted = await browser.permissions.request({
+        permissions: ["notifications"],
+      })
+
+      await this.db.setShouldShowNotifications(granted)
+      this.emitter.emit("setNotificationsPermission", granted)
+
+      return granted
+    }
+
+    return false
   }
 
   async getAccountSignerSettings(): Promise<AccountSignerSettings[]> {
